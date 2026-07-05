@@ -1,0 +1,81 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CleanGrab — clean video downloads</title>
+<link rel="stylesheet" href="style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⬇️</text></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <div class="brand-mark">⬇</div>
+    <div>
+      <h1>CleanGrab</h1>
+      <p>Paste a link. Get the clean, original video. Nothing else.</p>
+    </div>
+  </div>
+  <div class="engine-badge" id="engineBadge" title="Download engine status">engine: checking…</div>
+</header>
+
+<main>
+  <!-- Paste / drop zone -->
+  <section class="dropzone" id="dropzone">
+    <div class="platforms">
+      <span class="chip chip-yt">▶ YouTube</span>
+      <span class="chip chip-ig">◎ Instagram</span>
+      <span class="chip chip-tt">♪ TikTok</span>
+      <span class="chip chip-more">+ 1,000 more sites</span>
+    </div>
+
+    <div class="inputrow">
+      <input id="urlInput" type="url" spellcheck="false" autocomplete="off"
+             placeholder="Paste a video link here — or drop it anywhere on this window" />
+      <button id="fetchBtn" class="btn btn-primary">Fetch</button>
+    </div>
+    <p class="hint">Tip: press <kbd>⌘V</kbd> / <kbd>Ctrl+V</kbd> anywhere on this page and CleanGrab picks the link up automatically.</p>
+    <p class="error" id="inputError" hidden></p>
+  </section>
+
+  <!-- Preview card -->
+  <section class="preview" id="preview" hidden>
+    <div class="preview-media">
+      <img id="pvThumb" alt="" />
+      <span class="pv-duration" id="pvDuration" hidden></span>
+      <span class="pv-platform" id="pvPlatform" hidden></span>
+    </div>
+    <div class="preview-body">
+      <h2 id="pvTitle"></h2>
+      <p class="pv-uploader" id="pvUploader"></p>
+
+      <div class="quality" id="qualityRow">
+        <button class="qbtn active" data-q="best">Best<span id="qBestNote"></span></button>
+        <button class="qbtn" data-q="1080">1080p</button>
+        <button class="qbtn" data-q="720">720p</button>
+        <button class="qbtn" data-q="audio">Audio only</button>
+      </div>
+
+      <div class="preview-actions">
+        <button id="downloadBtn" class="btn btn-primary btn-big">⬇ Download</button>
+        <button id="cancelPreview" class="btn btn-ghost">Dismiss</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Queue -->
+  <section class="queue" id="queueSection" hidden>
+    <h3>Downloads</h3>
+    <div id="queue"></div>
+  </section>
+</main>
+
+<footer>
+  <p>CleanGrab fetches the platform's original media stream — no re-encoding, no added branding.
+     Please only download content you own or have permission to use.</p>
+</footer>
+
+<script src="app.js"></script>
+</body>
+</html>

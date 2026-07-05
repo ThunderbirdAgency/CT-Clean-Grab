@@ -1,0 +1,14 @@
+{
+  "name": "cleangrab",
+  "version": "1.0.0",
+  "description": "A Downie-style video downloader with a clean web interface. Paste an Instagram, TikTok, or YouTube link and get the original video file — no watermarks, no branding.",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "setup": "node scripts/setup.js"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}

@@ -23,7 +23,7 @@ engine Downie uses under the hood.
 ## Quick start
 
 ```bash
-# 1. Get the engines (one time) — downloads yt-dlp AND a static ffmpeg into ./bin
+# 1. Get the engines (one time) — downloads yt-dlp, ffmpeg, and deno into ./bin
 npm run setup
 
 # 2. Run
@@ -31,8 +31,21 @@ npm start                # → http://localhost:3111
 ```
 
 `npm run setup` installs everything CleanGrab needs — no Homebrew, no pip, no system
-packages. If it already finds ffmpeg on your PATH it skips that download. You can also
-bring your own binaries via the `YTDLP_PATH` / `FFMPEG_PATH` env vars.
+packages. It skips anything already on your PATH. You can also bring your own binaries
+via the `YTDLP_PATH` / `FFMPEG_PATH` env vars.
+
+> **Why deno?** YouTube protects its streams with JavaScript signature challenges;
+> yt-dlp needs a JS runtime to solve them. Without one, YouTube downloads fail with
+> 403 errors while every other site works fine.
+
+## YouTube troubleshooting
+
+- **HTTP 403 / missing formats** → you're missing the JS runtime. Run `npm run setup`
+  and restart; the engine badge and server log both warn when no runtime is found.
+- **"Sign in to confirm you're not a bot" / age-restricted / private videos** → open
+  ⚙ Settings and set **Browser cookies** to the browser where you're logged in to
+  YouTube. CleanGrab passes your existing login along (this is how Downie handles it
+  too). Note: Chrome on macOS may prompt for keychain access the first time.
 
 Then open **http://localhost:3111**, paste a video link, and click **Download**.
 

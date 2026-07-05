@@ -66,10 +66,7 @@ async function installFfmpeg() {
 
   console.log('Downloading static ffmpeg build (this one is ~30–80 MB)…');
   await fetchTo(url, archive);
-
-  // bsdtar (macOS/Windows 10+) and GNU tar (Linux) both handle these archives.
-  const extract = spawnSync('tar', ['-xf', archive, '-C', tmp], { encoding: 'utf8' });
-  if (extract.status !== 0) throw new Error(`could not extract archive: ${extract.stderr}`);
+  extractArchive(archive, tmp);
 
   const binName = IS_WIN ? 'ffmpeg.exe' : 'ffmpeg';
   const found = findFile(tmp, binName);
@@ -81,6 +78,55 @@ async function installFfmpeg() {
   fs.rmSync(archive, { force: true });
 
   const version = execFileSync(dest, ['-version'], { encoding: 'utf8' }).split('\n')[0];
+  console.log(`✓ ${version} → ${dest}`);
+}
+
+/* -------------------------------------------------------------------- deno */
+
+// yt-dlp needs a JavaScript runtime to solve YouTube's stream-signature
+// challenges; without one, YouTube downloads fail with 403 errors.
+function extractArchive(archive, tmp) {
+  // bsdtar (macOS/Windows) handles zip; GNU tar (Linux) needs unzip for it.
+  const tar = spawnSync('tar', ['-xf', archive, '-C', tmp], { encoding: 'utf8' });
+  if (tar.status === 0) return;
+  const unzip = spawnSync('unzip', ['-oq', archive, '-d', tmp], { encoding: 'utf8' });
+  if (unzip.status === 0) return;
+  throw new Error(`could not extract archive: ${tar.stderr || unzip.stderr || unzip.error?.message}`);
+}
+
+async function installDeno() {
+  const dest = path.join(BIN_DIR, IS_WIN ? 'deno.exe' : 'deno');
+
+  if (spawnSync('deno', ['--version'], { encoding: 'utf8' }).status === 0) {
+    console.log('✓ deno already on PATH — skipping download');
+    return;
+  }
+
+  const arch = os.arch() === 'arm64' ? 'aarch64' : 'x86_64';
+  const triple = IS_MAC
+    ? `${arch}-apple-darwin`
+    : IS_WIN
+      ? `${arch}-pc-windows-msvc`
+      : `${arch}-unknown-linux-gnu`;
+  const url = `https://github.com/denoland/deno/releases/latest/download/deno-${triple}.zip`;
+
+  const archive = path.join(BIN_DIR, 'deno.zip');
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), 'cleangrab-deno-'));
+
+  console.log('Downloading deno (JS runtime for YouTube support, ~40 MB)…');
+  await fetchTo(url, archive);
+  extractArchive(archive, tmp);
+
+  const binName = IS_WIN ? 'deno.exe' : 'deno';
+  const found = findFile(tmp, binName);
+  if (!found) throw new Error('deno binary not found inside the archive');
+
+  fs.copyFileSync(found, dest);
+  if (!IS_WIN) fs.chmodSync(dest, 0o755);
+  fs.rmSync(tmp, { recursive: true, force: true });
+  fs.rmSync(archive, { force: true });
+
+  const version = execFileSync(dest, ['--version'], { encoding: 'utf8' }).split('\n')[0];
   console.log(`✓ ${version} → ${dest}`);
 }
 
@@ -100,6 +146,17 @@ async function main() {
     console.warn('  macOS:  brew install ffmpeg');
     console.warn('  Ubuntu: sudo apt install ffmpeg');
     console.warn('  Windows: winget install ffmpeg');
+  }
+
+  try {
+    await installDeno();
+  } catch (e) {
+    console.warn(`\n⚠ deno auto-install failed: ${e.message}`);
+    console.warn('YouTube downloads need a JS runtime and will likely fail without');
+    console.warn('it (other sites are unaffected). Install manually:');
+    console.warn('  macOS:  brew install deno');
+    console.warn('  Linux:  curl -fsSL https://deno.land/install.sh | sh');
+    console.warn('  Windows: winget install DenoLand.Deno');
   }
 
   console.log('\nAll set. Start the app with:  npm start');

@@ -36,7 +36,27 @@
     </p>
     <div class="inputrow">
       <input id="saveDirInput" type="text" spellcheck="false" placeholder="e.g. ~/Downloads or ~/Dropbox/Videos" />
-      <button id="saveDirBtn" class="btn btn-primary">Save</button>
+    </div>
+
+    <h3 class="settings-gap">Browser cookies</h3>
+    <p class="settings-desc">
+      Lets CleanGrab borrow your browser's logins — fixes YouTube's
+      <em>"Sign in to confirm you're not a bot"</em> check and unlocks age-restricted or
+      private videos your account can see. Pick the browser where you're signed in to YouTube/Instagram.
+    </p>
+    <div class="inputrow">
+      <select id="cookiesSelect">
+        <option value="">Off — no cookies</option>
+        <option value="safari">Safari</option>
+        <option value="chrome">Chrome</option>
+        <option value="firefox">Firefox</option>
+        <option value="edge">Edge</option>
+        <option value="brave">Brave</option>
+        <option value="vivaldi">Vivaldi</option>
+        <option value="opera">Opera</option>
+        <option value="chromium">Chromium</option>
+      </select>
+      <button id="saveDirBtn" class="btn btn-primary">Save settings</button>
     </div>
     <p class="settings-status" id="saveDirStatus"></p>
   </section>

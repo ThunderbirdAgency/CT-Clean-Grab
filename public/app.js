@@ -69,6 +69,10 @@ fetch('/api/health')
         'Downloads best audio stream (install ffmpeg for mp3 conversion)';
     }
     if (h.saveDir) $('saveDirInput').value = h.saveDir;
+    if (h.cookiesBrowser) $('cookiesSelect').value = h.cookiesBrowser;
+    if (h.deno === false) {
+      badge.textContent += ' · no JS runtime (YouTube limited — run: npm run setup)';
+    }
   })
   .catch(() => {
     const badge = $('engineBadge');
@@ -94,14 +98,19 @@ async function saveSettings() {
     const r = await fetch('/api/settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ saveDir: $('saveDirInput').value }),
+      body: JSON.stringify({
+        saveDir: $('saveDirInput').value,
+        cookiesBrowser: $('cookiesSelect').value,
+      }),
     });
     const data = await r.json();
     if (!r.ok) throw new Error(data.error || 'Could not save settings.');
     status.classList.add('ok');
-    status.textContent = data.saveDir
-      ? `✓ Finished files will be copied to ${data.saveDir}`
-      : '✓ Save folder cleared — files stay in the app only.';
+    const bits = [
+      data.saveDir ? `files copied to ${data.saveDir}` : 'files stay in the app only',
+      data.cookiesBrowser ? `cookies from ${data.cookiesBrowser}` : 'no browser cookies',
+    ];
+    status.textContent = `✓ Saved — ${bits.join(' · ')}`;
   } catch (e) {
     status.classList.add('err');
     status.textContent = e.message;

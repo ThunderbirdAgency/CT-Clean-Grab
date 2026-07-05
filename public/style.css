@@ -119,6 +119,18 @@ main {
   outline: none;
 }
 #saveDirInput:focus { border-color: var(--accent); }
+.settings-gap { margin-top: 20px; }
+#cookiesSelect {
+  flex: 1; font-size: 14px;
+  color: var(--text);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  outline: none;
+  appearance: none;
+}
+#cookiesSelect:focus { border-color: var(--accent); }
 .settings-status { margin-top: 10px; font-size: 12.5px; color: var(--text-dim); }
 .settings-status.ok { color: var(--ok); }
 .settings-status.err { color: var(--err); }

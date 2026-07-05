@@ -45,9 +45,21 @@ function resolveFfmpeg() {
   return null;
 }
 
+// yt-dlp children get ./bin prepended to PATH so the bundled ffmpeg and
+// deno (the JS runtime yt-dlp needs for YouTube) are found automatically.
+const SPAWN_ENV = {
+  ...process.env,
+  PATH: `${path.join(ROOT, 'bin')}${path.delimiter}${process.env.PATH || ''}`,
+};
+
+function hasDeno() {
+  return spawnSync('deno', ['--version'], { encoding: 'utf8', env: SPAWN_ENV }).status === 0;
+}
+
 const YTDLP = resolveYtDlp();
 const FFMPEG_PATH = resolveFfmpeg();
 const FFMPEG = Boolean(FFMPEG_PATH);
+const DENO = hasDeno();
 
 /* ---------------------------------------------------------------- settings */
 
@@ -172,9 +184,26 @@ function formatArgs(quality) {
 
 /* ---------------------------------------------------------------- yt-dlp */
 
+const COOKIE_BROWSERS = ['chrome', 'safari', 'firefox', 'edge', 'brave', 'vivaldi', 'opera', 'chromium'];
+
+/**
+ * Borrow login cookies from the user's browser. This is how Downie handles
+ * YouTube's "Sign in to confirm you're not a bot" checks, age-restricted
+ * videos, and private videos the user can see when logged in.
+ */
+function cookieArgs() {
+  return COOKIE_BROWSERS.includes(config.cookiesBrowser)
+    ? ['--cookies-from-browser', config.cookiesBrowser]
+    : [];
+}
+
 function fetchInfo(url) {
   return new Promise((resolve, reject) => {
-    const proc = spawn(YTDLP, ['-J', '--no-playlist', '--no-warnings', '--', url]);
+    const proc = spawn(
+      YTDLP,
+      ['-J', '--no-playlist', '--no-warnings', ...cookieArgs(), '--', url],
+      { env: SPAWN_ENV }
+    );
     let out = '';
     let err = '';
     const timer = setTimeout(() => {
@@ -231,6 +260,7 @@ function startDownload(url, quality, meta) {
   const args = [
     ...formatArgs(quality),
     ...(FFMPEG && FFMPEG_PATH !== 'ffmpeg' ? ['--ffmpeg-location', FFMPEG_PATH] : []),
+    ...cookieArgs(),
     '--no-playlist',
     '--no-warnings',
     '--newline',
@@ -239,7 +269,7 @@ function startDownload(url, quality, meta) {
     '--', url,
   ];
 
-  const proc = spawn(YTDLP, args);
+  const proc = spawn(YTDLP, args, { env: SPAWN_ENV });
   job.status = 'downloading';
   let stderr = '';
 
@@ -444,32 +474,52 @@ const server = http.createServer(async (req, res) => {
         ok: true,
         ytdlp: YTDLP,
         ffmpeg: FFMPEG,
+        deno: DENO,
         saveDir: config.saveDir || null,
+        cookiesBrowser: config.cookiesBrowser || null,
       });
     }
 
     if (pathname === '/api/settings' && req.method === 'GET') {
-      return sendJson(res, 200, { saveDir: config.saveDir || null });
+      return sendJson(res, 200, {
+        saveDir: config.saveDir || null,
+        cookiesBrowser: config.cookiesBrowser || null,
+      });
     }
 
     if (pathname === '/api/settings' && req.method === 'POST') {
       const body = await readBody(req);
-      const raw = String(body.saveDir || '').trim();
-      if (!raw) {
-        delete config.saveDir;
-        saveConfig();
-        return sendJson(res, 200, { saveDir: null });
+
+      if ('cookiesBrowser' in body) {
+        const browser = String(body.cookiesBrowser || '').trim().toLowerCase();
+        if (browser && !COOKIE_BROWSERS.includes(browser)) {
+          return sendJson(res, 422, { error: `Unknown browser "${browser}".` });
+        }
+        if (browser) config.cookiesBrowser = browser;
+        else delete config.cookiesBrowser;
       }
-      const dir = expandHome(raw);
-      try {
-        fs.mkdirSync(dir, { recursive: true });
-        fs.accessSync(dir, fs.constants.W_OK);
-      } catch (e) {
-        return sendJson(res, 422, { error: `Can't use that folder: ${e.message}` });
+
+      if ('saveDir' in body) {
+        const raw = String(body.saveDir || '').trim();
+        if (!raw) {
+          delete config.saveDir;
+        } else {
+          const dir = expandHome(raw);
+          try {
+            fs.mkdirSync(dir, { recursive: true });
+            fs.accessSync(dir, fs.constants.W_OK);
+          } catch (e) {
+            return sendJson(res, 422, { error: `Can't use that folder: ${e.message}` });
+          }
+          config.saveDir = raw;
+        }
       }
-      config.saveDir = raw;
+
       saveConfig();
-      return sendJson(res, 200, { saveDir: raw });
+      return sendJson(res, 200, {
+        saveDir: config.saveDir || null,
+        cookiesBrowser: config.cookiesBrowser || null,
+      });
     }
 
     if (pathname === '/api/recordings' && req.method === 'POST') {
@@ -565,6 +615,6 @@ server.listen(PORT, () => {
   console.log('');
   console.log('  CleanGrab is running');
   console.log(`  →  http://localhost:${PORT}`);
-  console.log(`  engine: ${YTDLP}   ffmpeg: ${FFMPEG ? 'yes (merging + mp3 enabled)' : 'no (single-file formats only)'}`);
+  console.log(`  engine: ${YTDLP}   ffmpeg: ${FFMPEG ? 'yes (merging + mp3 enabled)' : 'no (single-file formats only)'}   deno: ${DENO ? 'yes' : 'NO — YouTube downloads will likely fail; run: npm run setup'}`);
   console.log('');
 });

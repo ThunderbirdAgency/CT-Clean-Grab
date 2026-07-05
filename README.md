@@ -16,6 +16,7 @@ engine Downie uses under the hood.
 - **Quality picker** — Best available, 1080p, 720p, or audio-only (mp3 when ffmpeg is installed). Tiers the source doesn't offer are greyed out.
 - **Live download queue** — progress bars, speed, ETA, then a one-click **Save** button.
 - **Screen recording** — hit ⏺ Record screen, pick a screen/window/tab, and the recording lands in the same queue, auto-converted to universally playable mp4 (when ffmpeg is present).
+- **Audio recording** ([Audio Hijack](https://rogueamoeba.com/audiohijack/)-style) — hit 🎙 Record audio and capture your microphone, app/tab/system audio, or both mixed into one track, with a live level meter. Recordings convert to 192 kbps mp3 automatically. To capture audio from *any* Mac app (Spotify, Zoom…), install the free [BlackHole](https://existential.audio/blackhole/) virtual audio device, set it as the app's output, and pick it as the input device.
 - **Cloud storage handoff** — set a save folder in ⚙ Settings and every finished download and recording is auto-copied there. Point it at a synced folder (`~/Dropbox/…`, iCloud Drive, `~/Google Drive/…`) and everything flows straight into your cloud storage.
 - **Clean originals** — fetches the platform's original media stream. For TikTok that means the watermark-free stream whenever the platform exposes one (yt-dlp prefers it by default).
 - **Zero npm dependencies** — plain Node built-ins, nothing to `npm install`.
@@ -61,7 +62,7 @@ Browser UI  ──►  Node server (server.js)  ──►  yt-dlp  ──►  or
 - `POST /api/download` — starts a download job; progress is parsed live from yt-dlp.
 - `GET /api/jobs/:id` — job status for the progress bar.
 - `GET /api/jobs/:id/file` — streams the finished file to your browser as a download.
-- `POST /api/recordings` — receives a browser screen recording (webm) and converts it to mp4.
+- `POST /api/recordings` — receives a browser recording (webm); screen recordings convert to mp4, audio recordings (`?audio=1`) to mp3.
 - `GET`/`POST /api/settings` — the save-folder setting (persisted in `config.json`).
 
 Screen recording uses the browser's native capture API (`getDisplayMedia` + `MediaRecorder`),

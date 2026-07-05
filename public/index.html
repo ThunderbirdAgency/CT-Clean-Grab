@@ -18,6 +18,7 @@
     </div>
   </div>
   <div class="topbar-right">
+    <button id="audioBtn" class="btn btn-audio" title="Record audio from any source">🎙 Record audio</button>
     <button id="recordBtn" class="btn btn-record" title="Record your screen">⏺ Record screen</button>
     <button id="settingsBtn" class="btn btn-ghost btn-icon" title="Settings">⚙</button>
     <div class="engine-badge" id="engineBadge" title="Download engine status">engine: checking…</div>
@@ -61,10 +62,40 @@
     <p class="settings-status" id="saveDirStatus"></p>
   </section>
 
+  <!-- Audio source picker (Audio Hijack-style) -->
+  <section class="audiopanel" id="audioPanel" hidden>
+    <h3>Record audio</h3>
+    <p class="settings-desc">Pick one or both sources — they get mixed into a single recording, saved as mp3.</p>
+
+    <label class="srcrow">
+      <input type="checkbox" id="srcMic" checked>
+      <span class="srclabel">🎤 Microphone / input device</span>
+      <select id="micSelect"><option value="">Default microphone</option></select>
+    </label>
+    <label class="srcrow">
+      <input type="checkbox" id="srcApp">
+      <span class="srclabel">💻 App / tab / system audio</span>
+      <span class="srcnote">you'll pick a tab or screen to capture audio from</span>
+    </label>
+
+    <p class="settings-desc srctip">
+      Tip: to capture audio from <em>any</em> Mac app (Spotify, Zoom…) like Audio Hijack does,
+      install the free <a href="https://existential.audio/blackhole/" target="_blank" rel="noopener">BlackHole</a>
+      virtual audio device, set it as the app's output, and pick it as the input device above.
+    </p>
+
+    <div class="preview-actions">
+      <button id="startAudioBtn" class="btn btn-primary">🎙 Start recording</button>
+      <button id="cancelAudioBtn" class="btn btn-ghost">Cancel</button>
+    </div>
+    <p class="error" id="audioError" hidden></p>
+  </section>
+
   <!-- Recording bar -->
   <section class="recbar" id="recbar" hidden>
     <span class="recdot"></span>
-    <span>Recording your screen…</span>
+    <span id="recLabel">Recording your screen…</span>
+    <div class="meter" id="meter" hidden><div id="meterFill"></div></div>
     <span class="rectime" id="recTime">0:00</span>
     <button id="stopRecBtn" class="btn btn-stop">■ Stop &amp; save</button>
   </section>

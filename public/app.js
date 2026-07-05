@@ -123,11 +123,34 @@ let recorder = null;
 let recChunks = [];
 let recTimer = null;
 let recStartedAt = 0;
+let recMode = 'screen';          // 'screen' | 'audio'
+let recStreams = [];             // every raw stream we opened, to stop tracks later
+let audioCtx = null;
+let meterRAF = null;
 
-$('recordBtn').addEventListener('click', startRecording);
+$('recordBtn').addEventListener('click', startScreenRecording);
 $('stopRecBtn').addEventListener('click', () => recorder?.stop());
 
-async function startRecording() {
+function beginRecorder(stream, mode, mimeCandidates) {
+  const mime = mimeCandidates.find((m) => MediaRecorder.isTypeSupported(m)) || '';
+  recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  recMode = mode;
+  recChunks = [];
+  recorder.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
+  recorder.onstop = finishRecording;
+  recorder.start(1000);
+  recStartedAt = Date.now();
+  $('recLabel').textContent = mode === 'audio' ? 'Recording audio…' : 'Recording your screen…';
+  $('recbar').hidden = false;
+  $('recordBtn').disabled = true;
+  $('audioBtn').disabled = true;
+  recTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - recStartedAt) / 1000);
+    $('recTime').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }, 500);
+}
+
+async function startScreenRecording() {
   if (recorder) return;
   if (!navigator.mediaDevices?.getDisplayMedia) {
     showError('Screen recording needs a browser with screen-capture support (Chrome, Edge, Safari 16+, Firefox).');
@@ -142,46 +165,41 @@ async function startRecording() {
   } catch {
     return; // user cancelled the picker
   }
-
-  const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
-    .find((m) => MediaRecorder.isTypeSupported(m)) || '';
-  recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
-  recChunks = [];
-  recorder.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
-  recorder.onstop = () => finishRecording(stream);
+  recStreams = [stream];
 
   // Stopping via the browser's own "Stop sharing" button also ends the recording.
   stream.getVideoTracks()[0].addEventListener('ended', () => recorder?.stop());
 
-  recorder.start(1000);
-  recStartedAt = Date.now();
-  $('recbar').hidden = false;
-  $('recordBtn').disabled = true;
-  recTimer = setInterval(() => {
-    const s = Math.floor((Date.now() - recStartedAt) / 1000);
-    $('recTime').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-  }, 500);
+  beginRecorder(stream, 'screen',
+    ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']);
 }
 
-async function finishRecording(stream) {
+async function finishRecording() {
   clearInterval(recTimer);
+  cancelAnimationFrame(meterRAF);
   $('recbar').hidden = true;
+  $('meter').hidden = true;
   $('recordBtn').disabled = false;
-  stream.getTracks().forEach((t) => t.stop());
+  $('audioBtn').disabled = false;
+  recStreams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+  recStreams = [];
+  audioCtx?.close().catch(() => {});
+  audioCtx = null;
 
-  const blob = new Blob(recChunks, { type: 'video/webm' });
+  const isAudio = recMode === 'audio';
+  const blob = new Blob(recChunks, { type: isAudio ? 'audio/webm' : 'video/webm' });
   recorder = null;
   recChunks = [];
   if (!blob.size) return;
 
   const stamp = new Date();
   const pad = (n) => String(n).padStart(2, '0');
-  const name = `Screen Recording ${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())} at ${pad(stamp.getHours())}.${pad(stamp.getMinutes())}.${pad(stamp.getSeconds())}`;
+  const name = `${isAudio ? 'Audio' : 'Screen'} Recording ${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())} at ${pad(stamp.getHours())}.${pad(stamp.getMinutes())}.${pad(stamp.getSeconds())}`;
 
   try {
-    const r = await fetch(`/api/recordings?name=${encodeURIComponent(name)}`, {
+    const r = await fetch(`/api/recordings?name=${encodeURIComponent(name)}${isAudio ? '&audio=1' : ''}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'video/webm' },
+      headers: { 'Content-Type': blob.type },
       body: blob,
     });
     const job = await r.json();
@@ -191,6 +209,113 @@ async function finishRecording(stream) {
   } catch (e) {
     showError(`Recording upload failed: ${e.message}`);
   }
+}
+
+/* ------------------------------------------------------------ audio recording */
+
+$('audioBtn').addEventListener('click', async () => {
+  const panel = $('audioPanel');
+  panel.hidden = !panel.hidden;
+  if (!panel.hidden) populateMics();
+});
+$('cancelAudioBtn').addEventListener('click', () => { $('audioPanel').hidden = true; });
+$('startAudioBtn').addEventListener('click', startAudioRecording);
+
+async function populateMics() {
+  try {
+    const devices = await navigator.mediaDevices.enumerateDevices();
+    const mics = devices.filter((d) => d.kind === 'audioinput');
+    const sel = $('micSelect');
+    const current = sel.value;
+    sel.innerHTML = '<option value="">Default microphone</option>';
+    mics.forEach((m, i) => {
+      const opt = document.createElement('option');
+      opt.value = m.deviceId;
+      // Labels are blank until mic permission is granted once — that's fine.
+      opt.textContent = m.label || `Input device ${i + 1}`;
+      sel.appendChild(opt);
+    });
+    sel.value = current;
+  } catch { /* device list is a nicety, not a requirement */ }
+}
+
+function showAudioError(msg) {
+  const el = $('audioError');
+  el.textContent = msg;
+  el.hidden = !msg;
+}
+
+async function startAudioRecording() {
+  if (recorder) return;
+  showAudioError(null);
+  const wantMic = $('srcMic').checked;
+  const wantApp = $('srcApp').checked;
+  if (!wantMic && !wantApp) {
+    showAudioError('Pick at least one audio source.');
+    return;
+  }
+
+  recStreams = [];
+  audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+  const mixDest = audioCtx.createMediaStreamDestination();
+  const analyser = audioCtx.createAnalyser();
+  analyser.fftSize = 512;
+
+  try {
+    if (wantMic) {
+      const deviceId = $('micSelect').value;
+      const mic = await navigator.mediaDevices.getUserMedia({
+        audio: deviceId ? { deviceId: { exact: deviceId } } : true,
+      });
+      recStreams.push(mic);
+      const src = audioCtx.createMediaStreamSource(mic);
+      src.connect(mixDest);
+      src.connect(analyser);
+    }
+
+    if (wantApp) {
+      // The share picker needs a video surface; we drop the video track and
+      // keep only the audio. Chrome: pick a tab (with "share tab audio") or,
+      // on Windows, a screen with system audio.
+      const disp = await navigator.mediaDevices.getDisplayMedia({ video: true, audio: true });
+      recStreams.push(disp);
+      if (!disp.getAudioTracks().length) {
+        recStreams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+        recStreams = [];
+        await audioCtx.close(); audioCtx = null;
+        showAudioError('No audio was shared — tick "Also share tab audio" (or system audio) in the picker and try again.');
+        return;
+      }
+      disp.getVideoTracks().forEach((t) => t.stop());
+      const src = audioCtx.createMediaStreamSource(new MediaStream(disp.getAudioTracks()));
+      src.connect(mixDest);
+      src.connect(analyser);
+      disp.getAudioTracks()[0].addEventListener('ended', () => recorder?.stop());
+    }
+  } catch (e) {
+    recStreams.forEach((s) => s.getTracks().forEach((t) => t.stop()));
+    recStreams = [];
+    await audioCtx?.close().catch(() => {}); audioCtx = null;
+    if (e.name === 'NotAllowedError') return; // user cancelled a permission prompt
+    showAudioError(`Could not open audio source: ${e.message}`);
+    return;
+  }
+
+  $('audioPanel').hidden = true;
+  beginRecorder(mixDest.stream, 'audio',
+    ['audio/webm;codecs=opus', 'audio/webm']);
+
+  // Live level meter, Audio Hijack style.
+  $('meter').hidden = false;
+  const buf = new Uint8Array(analyser.frequencyBinCount);
+  const tick = () => {
+    analyser.getByteTimeDomainData(buf);
+    let peak = 0;
+    for (const v of buf) peak = Math.max(peak, Math.abs(v - 128));
+    $('meterFill').style.width = `${Math.min(100, (peak / 128) * 130)}%`;
+    meterRAF = requestAnimationFrame(tick);
+  };
+  tick();
 }
 
 /* ------------------------------------------------------------ fetch info */
@@ -326,7 +451,7 @@ function addOrUpdateQueueItem(job) {
     el.className = 'qitem';
     el.id = `job-${job.id}`;
     el.innerHTML = `
-      ${job.thumbnail ? `<img src="${escapeAttr(job.thumbnail)}" alt="">` : `<div class="noimg">${job.kind === 'recording' ? '⏺' : '▶'}</div>`}
+      ${job.thumbnail ? `<img src="${escapeAttr(job.thumbnail)}" alt="">` : `<div class="noimg">${job.quality === 'audiorec' ? '🎙' : job.kind === 'recording' ? '⏺' : '▶'}</div>`}
       <div class="qmain">
         <div class="qtitle"></div>
         <div class="qmeta"></div>
@@ -343,7 +468,7 @@ function addOrUpdateQueueItem(job) {
   const barFill = bar.firstElementChild;
   const state = el.querySelector('.qstate');
 
-  const qualityLabel = { best: 'Best', 1080: '1080p', 720: '720p', audio: 'Audio', rec: 'Recording' }[job.quality] || '';
+  const qualityLabel = { best: 'Best', 1080: '1080p', 720: '720p', audio: 'Audio', rec: 'Recording', audiorec: 'Audio recording' }[job.quality] || '';
 
   if (job.status === 'downloading' || job.status === 'queued') {
     barFill.style.width = `${job.progress || 0}%`;
@@ -354,7 +479,7 @@ function addOrUpdateQueueItem(job) {
   } else if (job.status === 'processing') {
     barFill.style.width = '99%';
     meta.textContent = job.kind === 'recording'
-      ? 'Converting to mp4…'
+      ? `Converting to ${job.quality === 'audiorec' ? 'mp3' : 'mp4'}…`
       : `${qualityLabel} · finishing up…`;
     state.textContent = '⚙';
   } else if (job.status === 'done') {

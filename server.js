@@ -333,21 +333,22 @@ function sanitizeName(name, fallback) {
 }
 
 /**
- * Receives a browser screen recording (webm) as a raw upload, then converts
- * it to mp4 when ffmpeg is available so it plays everywhere.
+ * Receives a browser recording (webm) as a raw upload, then converts it
+ * when ffmpeg is available: screen recordings become mp4, audio-only
+ * recordings become mp3.
  */
-function receiveRecording(req, res, name) {
+function receiveRecording(req, res, name, audioOnly) {
   const id = newJobId();
   const dir = path.join(DOWNLOADS_DIR, id);
   fs.mkdirSync(dir, { recursive: true });
 
-  const title = sanitizeName(name, 'Screen Recording');
+  const title = sanitizeName(name, audioOnly ? 'Audio Recording' : 'Screen Recording');
   const webmFile = path.join(dir, `${title}.webm`);
 
   const job = {
     id,
     url: null,
-    quality: 'rec',
+    quality: audioOnly ? 'audiorec' : 'rec',
     kind: 'recording',
     status: 'downloading',
     progress: 0,
@@ -385,23 +386,24 @@ function receiveRecording(req, res, name) {
 
     if (!FFMPEG) return finish(webmFile);
 
-    // Convert to mp4 for universal playback (QuickTime, iOS, editors…).
+    // Convert for universal playback: mp4 for screen, mp3 for audio-only.
     job.status = 'processing';
     job.progress = 99;
-    const mp4File = path.join(dir, `${title}.mp4`);
-    const conv = spawn(FFMPEG_PATH, [
-      '-y', '-i', webmFile,
-      '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
-      '-pix_fmt', 'yuv420p',
-      '-c:a', 'aac', '-b:a', '192k',
-      '-movflags', '+faststart',
-      mp4File,
-    ]);
+    const outFile = path.join(dir, `${title}.${audioOnly ? 'mp3' : 'mp4'}`);
+    const convArgs = audioOnly
+      ? ['-y', '-i', webmFile, '-vn', '-c:a', 'libmp3lame', '-b:a', '192k', outFile]
+      : ['-y', '-i', webmFile,
+         '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
+         '-pix_fmt', 'yuv420p',
+         '-c:a', 'aac', '-b:a', '192k',
+         '-movflags', '+faststart',
+         outFile];
+    const conv = spawn(FFMPEG_PATH, convArgs);
     conv.on('error', () => finish(webmFile));
     conv.on('close', (code) => {
-      if (code === 0 && fs.existsSync(mp4File) && fs.statSync(mp4File).size > 0) {
+      if (code === 0 && fs.existsSync(outFile) && fs.statSync(outFile).size > 0) {
         fs.unlinkSync(webmFile);
-        finish(mp4File);
+        finish(outFile);
       } else {
         finish(webmFile); // keep the original if conversion failed
       }
@@ -523,8 +525,8 @@ const server = http.createServer(async (req, res) => {
     }
 
     if (pathname === '/api/recordings' && req.method === 'POST') {
-      const name = new URL(req.url, `http://${req.headers.host}`).searchParams.get('name');
-      return receiveRecording(req, res, name);
+      const params = new URL(req.url, `http://${req.headers.host}`).searchParams;
+      return receiveRecording(req, res, params.get('name'), params.get('audio') === '1');
     }
 
     if (pathname === '/api/info' && req.method === 'POST') {

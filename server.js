@@ -33,12 +33,62 @@ function resolveYtDlp() {
   return null;
 }
 
-function hasFfmpeg() {
-  return spawnSync('ffmpeg', ['-version'], { encoding: 'utf8' }).status === 0;
+function resolveFfmpeg() {
+  const candidates = [
+    process.env.FFMPEG_PATH,
+    path.join(ROOT, 'bin', process.platform === 'win32' ? 'ffmpeg.exe' : 'ffmpeg'),
+    'ffmpeg',
+  ].filter(Boolean);
+  for (const cand of candidates) {
+    if (spawnSync(cand, ['-version'], { encoding: 'utf8' }).status === 0) return cand;
+  }
+  return null;
 }
 
 const YTDLP = resolveYtDlp();
-const FFMPEG = hasFfmpeg();
+const FFMPEG_PATH = resolveFfmpeg();
+const FFMPEG = Boolean(FFMPEG_PATH);
+
+/* ---------------------------------------------------------------- settings */
+
+const CONFIG_FILE = path.join(ROOT, 'config.json');
+
+function loadConfig() {
+  try {
+    return JSON.parse(fs.readFileSync(CONFIG_FILE, 'utf8'));
+  } catch {
+    return {};
+  }
+}
+
+let config = loadConfig();
+
+function saveConfig() {
+  fs.writeFileSync(CONFIG_FILE, JSON.stringify(config, null, 2));
+}
+
+function expandHome(p) {
+  if (!p) return p;
+  if (p === '~') return process.env.HOME || p;
+  if (p.startsWith('~/')) return path.join(process.env.HOME || '', p.slice(2));
+  return p;
+}
+
+/** Copy a finished file into the user's save folder (Dropbox, iCloud, etc.). */
+function copyToSaveDir(job) {
+  const dir = expandHome(config.saveDir);
+  if (!dir) return;
+  try {
+    fs.mkdirSync(dir, { recursive: true });
+    let dest = path.join(dir, job.filename);
+    const { name, ext } = path.parse(job.filename);
+    for (let n = 2; fs.existsSync(dest); n++) dest = path.join(dir, `${name} (${n})${ext}`);
+    fs.copyFileSync(path.join(job.dir, job.filename), dest);
+    job.savedTo = dest;
+  } catch (e) {
+    job.saveError = `Could not copy to save folder: ${e.message}`;
+  }
+}
 
 if (!YTDLP) {
   console.error(
@@ -73,6 +123,9 @@ function publicJob(job) {
     filesize: job.filesize,
     error: job.error,
     createdAt: job.createdAt,
+    kind: job.kind || 'download',
+    savedTo: job.savedTo || null,
+    saveError: job.saveError || null,
   };
 }
 
@@ -177,6 +230,7 @@ function startDownload(url, quality, meta) {
 
   const args = [
     ...formatArgs(quality),
+    ...(FFMPEG && FFMPEG_PATH !== 'ffmpeg' ? ['--ffmpeg-location', FFMPEG_PATH] : []),
     '--no-playlist',
     '--no-warnings',
     '--newline',
@@ -231,9 +285,98 @@ function startDownload(url, quality, meta) {
     job.filesize = files[0].size;
     job.progress = 100;
     job.status = 'done';
+    copyToSaveDir(job);
   });
 
   return job;
+}
+
+/* -------------------------------------------------------- screen recordings */
+
+function sanitizeName(name, fallback) {
+  const clean = String(name || '')
+    .replace(/[/\\:*?"<>|\x00-\x1f]+/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 120);
+  return clean || fallback;
+}
+
+/**
+ * Receives a browser screen recording (webm) as a raw upload, then converts
+ * it to mp4 when ffmpeg is available so it plays everywhere.
+ */
+function receiveRecording(req, res, name) {
+  const id = newJobId();
+  const dir = path.join(DOWNLOADS_DIR, id);
+  fs.mkdirSync(dir, { recursive: true });
+
+  const title = sanitizeName(name, 'Screen Recording');
+  const webmFile = path.join(dir, `${title}.webm`);
+
+  const job = {
+    id,
+    url: null,
+    quality: 'rec',
+    kind: 'recording',
+    status: 'downloading',
+    progress: 0,
+    speed: null,
+    eta: null,
+    title,
+    thumbnail: null,
+    filename: null,
+    filesize: null,
+    error: null,
+    createdAt: Date.now(),
+    dir,
+  };
+  jobs.set(id, job);
+
+  const out = fs.createWriteStream(webmFile);
+  req.pipe(out);
+
+  req.on('error', () => {
+    job.status = 'error';
+    job.error = 'Upload interrupted.';
+    try { sendJson(res, 500, publicJob(job)); } catch {}
+  });
+
+  out.on('finish', () => {
+    // Upload is complete — hand the job to the UI, then convert in the background.
+    sendJson(res, 200, publicJob(job));
+    const finish = (file) => {
+      job.filename = path.basename(file);
+      job.filesize = fs.statSync(file).size;
+      job.progress = 100;
+      job.status = 'done';
+      copyToSaveDir(job);
+    };
+
+    if (!FFMPEG) return finish(webmFile);
+
+    // Convert to mp4 for universal playback (QuickTime, iOS, editors…).
+    job.status = 'processing';
+    job.progress = 99;
+    const mp4File = path.join(dir, `${title}.mp4`);
+    const conv = spawn(FFMPEG_PATH, [
+      '-y', '-i', webmFile,
+      '-c:v', 'libx264', '-preset', 'fast', '-crf', '20',
+      '-pix_fmt', 'yuv420p',
+      '-c:a', 'aac', '-b:a', '192k',
+      '-movflags', '+faststart',
+      mp4File,
+    ]);
+    conv.on('error', () => finish(webmFile));
+    conv.on('close', (code) => {
+      if (code === 0 && fs.existsSync(mp4File) && fs.statSync(mp4File).size > 0) {
+        fs.unlinkSync(webmFile);
+        finish(mp4File);
+      } else {
+        finish(webmFile); // keep the original if conversion failed
+      }
+    });
+  });
 }
 
 /* -------------------------------------------------------------- HTTP layer */
@@ -297,7 +440,41 @@ const server = http.createServer(async (req, res) => {
   try {
     // ---- API -------------------------------------------------------------
     if (pathname === '/api/health' && req.method === 'GET') {
-      return sendJson(res, 200, { ok: true, ytdlp: YTDLP, ffmpeg: FFMPEG });
+      return sendJson(res, 200, {
+        ok: true,
+        ytdlp: YTDLP,
+        ffmpeg: FFMPEG,
+        saveDir: config.saveDir || null,
+      });
+    }
+
+    if (pathname === '/api/settings' && req.method === 'GET') {
+      return sendJson(res, 200, { saveDir: config.saveDir || null });
+    }
+
+    if (pathname === '/api/settings' && req.method === 'POST') {
+      const body = await readBody(req);
+      const raw = String(body.saveDir || '').trim();
+      if (!raw) {
+        delete config.saveDir;
+        saveConfig();
+        return sendJson(res, 200, { saveDir: null });
+      }
+      const dir = expandHome(raw);
+      try {
+        fs.mkdirSync(dir, { recursive: true });
+        fs.accessSync(dir, fs.constants.W_OK);
+      } catch (e) {
+        return sendJson(res, 422, { error: `Can't use that folder: ${e.message}` });
+      }
+      config.saveDir = raw;
+      saveConfig();
+      return sendJson(res, 200, { saveDir: raw });
+    }
+
+    if (pathname === '/api/recordings' && req.method === 'POST') {
+      const name = new URL(req.url, `http://${req.headers.host}`).searchParams.get('name');
+      return receiveRecording(req, res, name);
     }
 
     if (pathname === '/api/info' && req.method === 'POST') {

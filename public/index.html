@@ -17,10 +17,38 @@
       <p>Paste a link. Get the clean, original video. Nothing else.</p>
     </div>
   </div>
-  <div class="engine-badge" id="engineBadge" title="Download engine status">engine: checking…</div>
+  <div class="topbar-right">
+    <button id="recordBtn" class="btn btn-record" title="Record your screen">⏺ Record screen</button>
+    <button id="settingsBtn" class="btn btn-ghost btn-icon" title="Settings">⚙</button>
+    <div class="engine-badge" id="engineBadge" title="Download engine status">engine: checking…</div>
+  </div>
 </header>
 
 <main>
+  <!-- Settings -->
+  <section class="settings" id="settingsPanel" hidden>
+    <h3>Save folder</h3>
+    <p class="settings-desc">
+      Finished downloads and recordings are automatically copied here.
+      Point it at a synced folder to send everything straight to your cloud storage —
+      e.g. <code>~/Dropbox/Videos</code>, <code>~/Library/Mobile Documents/com~apple~CloudDocs/Videos</code> (iCloud Drive),
+      or <code>~/Google Drive/Videos</code>. Leave empty to keep files in the app only.
+    </p>
+    <div class="inputrow">
+      <input id="saveDirInput" type="text" spellcheck="false" placeholder="e.g. ~/Downloads or ~/Dropbox/Videos" />
+      <button id="saveDirBtn" class="btn btn-primary">Save</button>
+    </div>
+    <p class="settings-status" id="saveDirStatus"></p>
+  </section>
+
+  <!-- Recording bar -->
+  <section class="recbar" id="recbar" hidden>
+    <span class="recdot"></span>
+    <span>Recording your screen…</span>
+    <span class="rectime" id="recTime">0:00</span>
+    <button id="stopRecBtn" class="btn btn-stop">■ Stop &amp; save</button>
+  </section>
+
   <!-- Paste / drop zone -->
   <section class="dropzone" id="dropzone">
     <div class="platforms">

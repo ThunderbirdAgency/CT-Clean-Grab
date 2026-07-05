@@ -15,23 +15,24 @@ engine Downie uses under the hood.
 - **Preview before downloading** — thumbnail, title, uploader, duration, and available resolutions.
 - **Quality picker** — Best available, 1080p, 720p, or audio-only (mp3 when ffmpeg is installed). Tiers the source doesn't offer are greyed out.
 - **Live download queue** — progress bars, speed, ETA, then a one-click **Save** button.
+- **Screen recording** — hit ⏺ Record screen, pick a screen/window/tab, and the recording lands in the same queue, auto-converted to universally playable mp4 (when ffmpeg is present).
+- **Cloud storage handoff** — set a save folder in ⚙ Settings and every finished download and recording is auto-copied there. Point it at a synced folder (`~/Dropbox/…`, iCloud Drive, `~/Google Drive/…`) and everything flows straight into your cloud storage.
 - **Clean originals** — fetches the platform's original media stream. For TikTok that means the watermark-free stream whenever the platform exposes one (yt-dlp prefers it by default).
 - **Zero npm dependencies** — plain Node built-ins, nothing to `npm install`.
 
 ## Quick start
 
 ```bash
-# 1. Get the download engine (one time)
-npm run setup            # downloads the yt-dlp binary into ./bin
-# …or, if you prefer:    pip install yt-dlp
+# 1. Get the engines (one time) — downloads yt-dlp AND a static ffmpeg into ./bin
+npm run setup
 
-# 2. (Optional, recommended) install ffmpeg for mp3 + HD stream merging
-#    macOS:  brew install ffmpeg
-#    Ubuntu: sudo apt install ffmpeg
-
-# 3. Run
+# 2. Run
 npm start                # → http://localhost:3111
 ```
+
+`npm run setup` installs everything CleanGrab needs — no Homebrew, no pip, no system
+packages. If it already finds ffmpeg on your PATH it skips that download. You can also
+bring your own binaries via the `YTDLP_PATH` / `FFMPEG_PATH` env vars.
 
 Then open **http://localhost:3111**, paste a video link, and click **Download**.
 
@@ -47,16 +48,24 @@ Browser UI  ──►  Node server (server.js)  ──►  yt-dlp  ──►  or
 - `POST /api/download` — starts a download job; progress is parsed live from yt-dlp.
 - `GET /api/jobs/:id` — job status for the progress bar.
 - `GET /api/jobs/:id/file` — streams the finished file to your browser as a download.
+- `POST /api/recordings` — receives a browser screen recording (webm) and converts it to mp4.
+- `GET`/`POST /api/settings` — the save-folder setting (persisted in `config.json`).
+
+Screen recording uses the browser's native capture API (`getDisplayMedia` + `MediaRecorder`),
+so you pick exactly what to record — a full screen, one window, or a single tab (tab/system
+audio included where the browser supports it).
 
 Without ffmpeg, CleanGrab falls back to the best *single-file* format the platform offers
-(usually 720p–1080p mp4) and best-audio instead of mp3 — everything still works.
+(usually 720p–1080p mp4), best-audio instead of mp3, and keeps recordings as webm —
+everything still works.
 
 ## Configuration
 
-| Env var      | Default | Purpose                          |
-|--------------|---------|----------------------------------|
-| `PORT`       | `3111`  | Web UI port                      |
-| `YTDLP_PATH` | auto    | Explicit path to a yt-dlp binary |
+| Env var       | Default | Purpose                           |
+|---------------|---------|-----------------------------------|
+| `PORT`        | `3111`  | Web UI port                       |
+| `YTDLP_PATH`  | auto    | Explicit path to a yt-dlp binary  |
+| `FFMPEG_PATH` | auto    | Explicit path to an ffmpeg binary |
 
 ## A note on use
 

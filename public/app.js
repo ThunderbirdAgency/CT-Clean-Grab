@@ -68,12 +68,121 @@ fetch('/api/health')
       document.querySelector('[data-q="audio"]').title =
         'Downloads best audio stream (install ffmpeg for mp3 conversion)';
     }
+    if (h.saveDir) $('saveDirInput').value = h.saveDir;
   })
   .catch(() => {
     const badge = $('engineBadge');
     badge.textContent = 'engine offline';
     badge.classList.add('bad');
   });
+
+/* ------------------------------------------------------------ settings */
+
+$('settingsBtn').addEventListener('click', () => {
+  const panel = $('settingsPanel');
+  panel.hidden = !panel.hidden;
+});
+
+$('saveDirBtn').addEventListener('click', saveSettings);
+$('saveDirInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') saveSettings(); });
+
+async function saveSettings() {
+  const status = $('saveDirStatus');
+  status.className = 'settings-status';
+  status.textContent = 'Saving…';
+  try {
+    const r = await fetch('/api/settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ saveDir: $('saveDirInput').value }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Could not save settings.');
+    status.classList.add('ok');
+    status.textContent = data.saveDir
+      ? `✓ Finished files will be copied to ${data.saveDir}`
+      : '✓ Save folder cleared — files stay in the app only.';
+  } catch (e) {
+    status.classList.add('err');
+    status.textContent = e.message;
+  }
+}
+
+/* ------------------------------------------------------------ screen recording */
+
+let recorder = null;
+let recChunks = [];
+let recTimer = null;
+let recStartedAt = 0;
+
+$('recordBtn').addEventListener('click', startRecording);
+$('stopRecBtn').addEventListener('click', () => recorder?.stop());
+
+async function startRecording() {
+  if (recorder) return;
+  if (!navigator.mediaDevices?.getDisplayMedia) {
+    showError('Screen recording needs a browser with screen-capture support (Chrome, Edge, Safari 16+, Firefox).');
+    return;
+  }
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getDisplayMedia({
+      video: { frameRate: 30 },
+      audio: true, // tab/system audio where the browser supports it
+    });
+  } catch {
+    return; // user cancelled the picker
+  }
+
+  const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
+    .find((m) => MediaRecorder.isTypeSupported(m)) || '';
+  recorder = new MediaRecorder(stream, mime ? { mimeType: mime } : undefined);
+  recChunks = [];
+  recorder.ondataavailable = (e) => { if (e.data.size) recChunks.push(e.data); };
+  recorder.onstop = () => finishRecording(stream);
+
+  // Stopping via the browser's own "Stop sharing" button also ends the recording.
+  stream.getVideoTracks()[0].addEventListener('ended', () => recorder?.stop());
+
+  recorder.start(1000);
+  recStartedAt = Date.now();
+  $('recbar').hidden = false;
+  $('recordBtn').disabled = true;
+  recTimer = setInterval(() => {
+    const s = Math.floor((Date.now() - recStartedAt) / 1000);
+    $('recTime').textContent = `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+  }, 500);
+}
+
+async function finishRecording(stream) {
+  clearInterval(recTimer);
+  $('recbar').hidden = true;
+  $('recordBtn').disabled = false;
+  stream.getTracks().forEach((t) => t.stop());
+
+  const blob = new Blob(recChunks, { type: 'video/webm' });
+  recorder = null;
+  recChunks = [];
+  if (!blob.size) return;
+
+  const stamp = new Date();
+  const pad = (n) => String(n).padStart(2, '0');
+  const name = `Screen Recording ${stamp.getFullYear()}-${pad(stamp.getMonth() + 1)}-${pad(stamp.getDate())} at ${pad(stamp.getHours())}.${pad(stamp.getMinutes())}.${pad(stamp.getSeconds())}`;
+
+  try {
+    const r = await fetch(`/api/recordings?name=${encodeURIComponent(name)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'video/webm' },
+      body: blob,
+    });
+    const job = await r.json();
+    if (!r.ok) throw new Error(job.error || 'Could not save recording.');
+    addOrUpdateQueueItem(job);
+    watchJob(job.id);
+  } catch (e) {
+    showError(`Recording upload failed: ${e.message}`);
+  }
+}
 
 /* ------------------------------------------------------------ fetch info */
 
@@ -208,7 +317,7 @@ function addOrUpdateQueueItem(job) {
     el.className = 'qitem';
     el.id = `job-${job.id}`;
     el.innerHTML = `
-      ${job.thumbnail ? `<img src="${escapeAttr(job.thumbnail)}" alt="">` : '<div class="noimg">▶</div>'}
+      ${job.thumbnail ? `<img src="${escapeAttr(job.thumbnail)}" alt="">` : `<div class="noimg">${job.kind === 'recording' ? '⏺' : '▶'}</div>`}
       <div class="qmain">
         <div class="qtitle"></div>
         <div class="qmeta"></div>
@@ -225,7 +334,7 @@ function addOrUpdateQueueItem(job) {
   const barFill = bar.firstElementChild;
   const state = el.querySelector('.qstate');
 
-  const qualityLabel = { best: 'Best', 1080: '1080p', 720: '720p', audio: 'Audio' }[job.quality] || '';
+  const qualityLabel = { best: 'Best', 1080: '1080p', 720: '720p', audio: 'Audio', rec: 'Recording' }[job.quality] || '';
 
   if (job.status === 'downloading' || job.status === 'queued') {
     barFill.style.width = `${job.progress || 0}%`;
@@ -235,12 +344,22 @@ function addOrUpdateQueueItem(job) {
     state.textContent = `${Math.floor(job.progress || 0)}%`;
   } else if (job.status === 'processing') {
     barFill.style.width = '99%';
-    meta.textContent = `${qualityLabel} · finishing up…`;
+    meta.textContent = job.kind === 'recording'
+      ? 'Converting to mp4…'
+      : `${qualityLabel} · finishing up…`;
     state.textContent = '⚙';
   } else if (job.status === 'done') {
     bar.classList.add('done');
     barFill.style.width = '100%';
-    meta.textContent = [qualityLabel, fmtSize(job.filesize), job.filename].filter(Boolean).join(' · ');
+    const savedNote = job.savedTo ? `✓ copied to ${job.savedTo}` : (job.saveError || null);
+    meta.innerHTML = '';
+    meta.append([qualityLabel, fmtSize(job.filesize), job.filename].filter(Boolean).join(' · '));
+    if (savedNote) {
+      const span = document.createElement('span');
+      span.className = job.savedTo ? 'qsaved' : '';
+      span.textContent = ` · ${savedNote}`;
+      meta.append(span);
+    }
     state.remove?.();
     if (!el.querySelector('.qsave')) {
       const a = document.createElement('a');

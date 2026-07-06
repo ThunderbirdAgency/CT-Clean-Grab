@@ -1,0 +1,38 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.thunderbirdagency.magpie</string>
+
+  <!-- EDIT: path to node (run `which node`) and to your Magpie checkout -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/node</string>
+    <string>server.js</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/Users/thunderbird/Magpie</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- EDIT: your real values -->
+    <key>ANTHROPIC_API_KEY</key>
+    <string>sk-ant-REPLACE_ME</string>
+    <key>MAGPIE_TOKEN</key>
+    <string>pick-a-long-random-string</string>
+    <key>PORT</key>
+    <string>3111</string>
+  </dict>
+
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>StandardOutPath</key>
+  <string>/tmp/magpie.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/magpie.err.log</string>
+</dict>
+</plist>

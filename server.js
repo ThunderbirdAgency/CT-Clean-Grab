@@ -786,9 +786,44 @@ function serveStatic(req, res, pathname) {
   });
 }
 
+// Optional shared-access token for team deployments (set MAGPIE_TOKEN).
+// First visit with ?token=XYZ sets a long-lived cookie; after that every
+// browser request carries it automatically.
+const ACCESS_TOKEN = process.env.MAGPIE_TOKEN || null;
+
+function authorized(req, res, requestUrl) {
+  if (!ACCESS_TOKEN) return true;
+  const cookies = Object.fromEntries(
+    (req.headers.cookie || '').split(';').map((c) => {
+      const i = c.indexOf('=');
+      return [c.slice(0, i).trim(), c.slice(i + 1).trim()];
+    })
+  );
+  if (cookies.magpie_token === ACCESS_TOKEN) return true;
+  const queryToken = requestUrl.searchParams.get('token');
+  if (queryToken === ACCESS_TOKEN) {
+    res.setHeader('Set-Cookie',
+      `magpie_token=${ACCESS_TOKEN}; Path=/; Max-Age=31536000; SameSite=Lax; HttpOnly`);
+    return true;
+  }
+  const bearer = (req.headers.authorization || '').replace(/^Bearer\s+/i, '');
+  if (bearer === ACCESS_TOKEN) return true;
+  return false;
+}
+
 const server = http.createServer(async (req, res) => {
-  const { pathname } = new URL(req.url, `http://${req.headers.host}`);
+  const requestUrl = new URL(req.url, `http://${req.headers.host}`);
+  const { pathname } = requestUrl;
   let m;
+
+  if (!authorized(req, res, requestUrl)) {
+    res.writeHead(401, { 'Content-Type': 'text/html; charset=utf-8' });
+    return res.end(
+      '<body style="font-family:sans-serif;background:#0e0f13;color:#eef0f6;display:grid;place-items:center;height:100vh;margin:0">' +
+      '<div style="text-align:center"><h2>🐦‍⬛ Magpie</h2><p>This Magpie needs an access token.<br>' +
+      'Open the link your admin gave you (it ends in <code>?token=…</code>).</p></div></body>'
+    );
+  }
 
   try {
     // ---- API -------------------------------------------------------------
@@ -1025,10 +1060,13 @@ const server = http.createServer(async (req, res) => {
   }
 });
 
-server.listen(PORT, () => {
+const HOST = process.env.HOST || '0.0.0.0';
+
+server.listen(PORT, HOST, () => {
   console.log('');
   console.log('  Magpie is running — collect clips, learn why they fly');
   console.log(`  →  http://localhost:${PORT}`);
   console.log(`  engine: ${YTDLP}   ffmpeg: ${FFMPEG ? 'yes (merging + mp3 enabled)' : 'no (single-file formats only)'}   deno: ${DENO ? 'yes' : 'NO — YouTube downloads will likely fail; run: npm run setup'}`);
+  if (ACCESS_TOKEN) console.log(`  access: token required — share http://<host>:${PORT}/?token=${ACCESS_TOKEN}`);
   console.log('');
 });

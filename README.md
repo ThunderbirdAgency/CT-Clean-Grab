@@ -114,10 +114,20 @@ everything still works.
 | Env var             | Default            | Purpose                           |
 |---------------------|--------------------|-----------------------------------|
 | `PORT`              | `3111`             | Web UI port                       |
+| `HOST`              | `0.0.0.0`          | Bind address                      |
 | `YTDLP_PATH`        | auto               | Explicit path to a yt-dlp binary  |
 | `FFMPEG_PATH`       | auto               | Explicit path to an ffmpeg binary |
 | `ANTHROPIC_API_KEY` | —                  | Enables Claude analysis           |
 | `ANTHROPIC_MODEL`   | `claude-opus-4-8`  | Model used for analysis           |
+| `MAGPIE_TOKEN`      | — (open)           | Shared access token for team deployments |
+
+## Run it for the whole team
+
+Put Magpie on an always-on Mac mini and share it over Tailscale — one library,
+one Dropbox, everyone's browser can download, analyze, and record into it.
+Full guide: [`deploy/MAC-MINI-SETUP.md`](deploy/MAC-MINI-SETUP.md) (launchd
+service, HTTPS via Tailscale, access token). A `deploy/Dockerfile` is included
+for Linux home servers.
 
 ## A note on use
 

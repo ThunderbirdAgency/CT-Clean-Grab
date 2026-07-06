@@ -55,6 +55,101 @@ function looksLikeUrl(text) {
   return /^https?:\/\/\S+$/i.test((text || '').trim());
 }
 
+function fmtCount(n) {
+  if (n == null) return null;
+  if (n >= 1e9) return (n / 1e9).toFixed(1).replace(/\.0$/, '') + 'B';
+  if (n >= 1e6) return (n / 1e6).toFixed(1).replace(/\.0$/, '') + 'M';
+  if (n >= 1e3) return (n / 1e3).toFixed(1).replace(/\.0$/, '') + 'K';
+  return String(n);
+}
+
+function renderStats(el, stats) {
+  el.innerHTML = '';
+  if (!stats) { el.hidden = true; return; }
+  const items = [
+    ['views', stats.views], ['likes', stats.likes],
+    ['comments', stats.comments], ['shares', stats.reposts],
+    ['followers', stats.followers],
+  ].filter(([, v]) => v != null);
+  if (stats.views && stats.likes) {
+    items.push(['like rate', ((stats.likes / stats.views) * 100).toFixed(1) + '%']);
+  }
+  if (!items.length) { el.hidden = true; return; }
+  for (const [label, value] of items) {
+    const chip = document.createElement('div');
+    chip.className = 'stat';
+    const span = document.createElement('span');
+    span.textContent = label;
+    chip.appendChild(span);
+    chip.append(typeof value === 'number' ? fmtCount(value) : value);
+    el.appendChild(chip);
+  }
+  el.hidden = false;
+}
+
+/** A profile/channel link rather than a single video? Then list top clips. */
+function looksLikeProfile(url) {
+  try {
+    const u = new URL(url);
+    const h = u.hostname.replace(/^www\./, '');
+    const p = u.pathname.replace(/\/+$/, '');
+    if (/tiktok\.com$/.test(h)) return /^\/@[^/]+$/.test(p);
+    if (/instagram\.com$/.test(h)) return /^\/[^/]+$/.test(p) && !/^\/(reel|reels|p|tv|stories|explore)/.test(p);
+    if (/youtube\.com$/.test(h)) return /^\/(@[^/]+|channel\/[^/]+|c\/[^/]+|user\/[^/]+)(\/(videos|shorts))?$/.test(p);
+    return false;
+  } catch { return false; }
+}
+
+/* tiny markdown renderer — headers, bold, lists, paragraphs; all text-escaped */
+function renderMarkdown(target, md) {
+  target.innerHTML = '';
+  let list = null;
+  const closeList = () => { list = null; };
+  for (const raw of md.split('\n')) {
+    const line = raw.trimEnd();
+    const inline = (parent, text) => {
+      // **bold** and `code`, everything else as plain text nodes
+      const parts = text.split(/(\*\*[^*]+\*\*|`[^`]+`)/g);
+      for (const part of parts) {
+        if (/^\*\*[^*]+\*\*$/.test(part)) {
+          const b = document.createElement('strong');
+          b.textContent = part.slice(2, -2);
+          parent.appendChild(b);
+        } else if (/^`[^`]+`$/.test(part)) {
+          const c = document.createElement('code');
+          c.textContent = part.slice(1, -1);
+          parent.appendChild(c);
+        } else if (part) {
+          parent.appendChild(document.createTextNode(part));
+        }
+      }
+    };
+    let m;
+    if ((m = line.match(/^(#{1,3})\s+(.*)/))) {
+      closeList();
+      const h = document.createElement('h' + m[1].length);
+      inline(h, m[2]);
+      target.appendChild(h);
+    } else if ((m = line.match(/^\s*(?:[-*]|\d+\.)\s+(.*)/))) {
+      const ordered = /^\s*\d+\./.test(line);
+      if (!list || list.tagName !== (ordered ? 'OL' : 'UL')) {
+        list = document.createElement(ordered ? 'ol' : 'ul');
+        target.appendChild(list);
+      }
+      const li = document.createElement('li');
+      inline(li, m[1]);
+      list.appendChild(li);
+    } else if (line.trim() === '') {
+      closeList();
+    } else {
+      closeList();
+      const p = document.createElement('p');
+      inline(p, line);
+      target.appendChild(p);
+    }
+  }
+}
+
 /* ------------------------------------------------------------ engine badge */
 
 fetch('/api/health')
@@ -70,6 +165,7 @@ fetch('/api/health')
     }
     if (h.saveDir) $('saveDirInput').value = h.saveDir;
     if (h.cookiesBrowser) $('cookiesSelect').value = h.cookiesBrowser;
+    $('autoAnalyzeChk').checked = Boolean(h.autoAnalyze);
     if (h.deno === false) {
       badge.textContent += ' · no JS runtime (YouTube limited — run: npm run setup)';
     }
@@ -101,6 +197,7 @@ async function saveSettings() {
       body: JSON.stringify({
         saveDir: $('saveDirInput').value,
         cookiesBrowser: $('cookiesSelect').value,
+        autoAnalyze: $('autoAnalyzeChk').checked,
       }),
     });
     const data = await r.json();
@@ -327,6 +424,7 @@ async function fetchInfo() {
     return;
   }
   showError(null);
+  if (looksLikeProfile(url)) return fetchCollection(url);
   fetchBtn.disabled = true;
   fetchBtn.textContent = 'Fetching…';
   preview.hidden = true;
@@ -351,9 +449,83 @@ async function fetchInfo() {
   }
 }
 
+/* ---------------------------------------------------- profile top clips */
+
+async function fetchCollection(url) {
+  fetchBtn.disabled = true;
+  fetchBtn.textContent = 'Listing…';
+  try {
+    const r = await fetch('/api/collection', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Could not list that profile.');
+    renderCollection(data);
+  } catch (e) {
+    showError(e.message);
+  } finally {
+    fetchBtn.disabled = false;
+    fetchBtn.textContent = 'Fetch';
+  }
+}
+
+function renderCollection(data) {
+  $('colTitle').textContent = `Top clips — ${data.uploader || data.title} (by views)`;
+  const list = $('collectionList');
+  list.innerHTML = '';
+  data.entries.forEach((entry, i) => {
+    const row = document.createElement('label');
+    row.className = 'colitem';
+    const chk = document.createElement('input');
+    chk.type = 'checkbox';
+    chk.checked = i < 5; // top 5 pre-selected
+    chk.dataset.url = entry.url;
+    row.appendChild(chk);
+    if (entry.thumbnail) {
+      const img = document.createElement('img');
+      img.src = entry.thumbnail;
+      row.appendChild(img);
+    }
+    const title = document.createElement('span');
+    title.className = 'coltitle';
+    title.textContent = entry.title || entry.url;
+    row.appendChild(title);
+    const views = document.createElement('span');
+    views.className = 'colviews';
+    views.textContent = entry.views != null ? `${fmtCount(entry.views)} views` : '';
+    row.appendChild(views);
+    list.appendChild(row);
+  });
+  $('collectionSection').hidden = false;
+  $('collectionSection').scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+$('closeColBtn').addEventListener('click', () => { $('collectionSection').hidden = true; });
+$('grabTopBtn').addEventListener('click', async () => {
+  const selected = [...$('collectionList').querySelectorAll('input:checked')];
+  if (!selected.length) return;
+  $('grabTopBtn').disabled = true;
+  for (const chk of selected) {
+    try {
+      const r = await fetch('/api/download', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: chk.dataset.url, quality: 'best' }),
+      });
+      const job = await r.json();
+      if (r.ok) { addOrUpdateQueueItem(job); watchJob(job.id); }
+    } catch { /* keep grabbing the rest */ }
+  }
+  $('grabTopBtn').disabled = false;
+  $('collectionSection').hidden = true;
+});
+
 function renderPreview(info, url) {
   $('pvTitle').textContent = info.title;
   $('pvUploader').textContent = info.uploader ? `by ${info.uploader}` : '';
+  renderStats($('pvStats'), info.stats);
 
   const thumb = $('pvThumb');
   thumb.src = info.thumbnail || '';
@@ -502,6 +674,36 @@ function addOrUpdateQueueItem(job) {
       a.textContent = 'Save';
       el.appendChild(a);
     }
+    // Analyze button for anything with video content
+    if (job.quality !== 'audio' && job.quality !== 'audiorec') {
+      let btn = el.querySelector('.qanalyze');
+      if (!btn) {
+        btn = document.createElement('button');
+        btn.className = 'qanalyze';
+        btn.addEventListener('click', () => onAnalyzeClick(job.id, btn));
+        el.insertBefore(btn, el.querySelector('.qsave'));
+      }
+      const a = job.analysis;
+      if (!a) {
+        btn.textContent = '🔍 Analyze';
+        btn.disabled = false;
+        btn.classList.remove('ready');
+      } else if (a.status === 'running') {
+        btn.textContent = `⏳ ${a.step || 'Analyzing'}…`;
+        btn.disabled = true;
+        btn.classList.remove('ready');
+        pollAnalysis(job.id);
+      } else if (a.status === 'done') {
+        btn.textContent = a.hasReport ? '📊 View report' : '📦 View bundle';
+        btn.disabled = false;
+        btn.classList.add('ready');
+      } else {
+        btn.textContent = '🔍 Retry analysis';
+        btn.disabled = false;
+        btn.classList.remove('ready');
+        if (a.error && !btn.title) btn.title = a.error;
+      }
+    }
   } else if (job.status === 'error') {
     barFill.style.width = '100%';
     barFill.style.background = 'var(--err)';
@@ -514,6 +716,99 @@ function addOrUpdateQueueItem(job) {
 function escapeAttr(s) {
   return String(s).replace(/"/g, '&quot;');
 }
+
+/* ------------------------------------------------------------ analysis */
+
+const analysisPolls = new Map();
+
+async function onAnalyzeClick(id, btn) {
+  const job = await fetch(`/api/jobs/${id}`).then((r) => r.json()).catch(() => null);
+  if (job?.analysis?.status === 'done') return openReport(id);
+
+  btn.disabled = true;
+  btn.textContent = '⏳ Starting…';
+  try {
+    const r = await fetch(`/api/jobs/${id}/analyze`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claude: true }),
+    });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'Could not start analysis.');
+    addOrUpdateQueueItem(data);
+    pollAnalysis(id);
+  } catch (e) {
+    btn.disabled = false;
+    btn.textContent = '🔍 Analyze';
+    showError(e.message);
+  }
+}
+
+function pollAnalysis(id) {
+  if (analysisPolls.has(id)) return;
+  const timer = setInterval(async () => {
+    try {
+      const r = await fetch(`/api/jobs/${id}`);
+      if (!r.ok) throw new Error();
+      const job = await r.json();
+      addOrUpdateQueueItem(job);
+      if (!job.analysis || job.analysis.status !== 'running') {
+        clearInterval(timer);
+        analysisPolls.delete(id);
+        if (job.analysis?.status === 'done') openReport(id);
+        if (job.analysis?.status === 'error') showError(`Analysis failed: ${job.analysis.error}`);
+      }
+    } catch {
+      clearInterval(timer);
+      analysisPolls.delete(id);
+    }
+  }, 1500);
+  analysisPolls.set(id, timer);
+}
+
+async function openReport(id) {
+  const r = await fetch(`/api/jobs/${id}/analysis`);
+  if (!r.ok) return;
+  const a = await r.json();
+  const section = $('reportSection');
+
+  $('reportTitle').textContent = a.bundle?.title ? `Analysis — ${a.bundle.title}` : 'Analysis';
+  const sheet = $('reportSheet');
+  sheet.src = `/api/jobs/${id}/analysis/sheet?t=${Date.now()}`;
+  const audio = $('reportAudio');
+  audio.src = a.bundle?.hasAudio ? `/api/jobs/${id}/analysis/audio` : '';
+  audio.style.display = a.bundle?.hasAudio ? '' : 'none';
+  renderStats($('reportStats'), a.bundle?.stats);
+
+  const body = $('reportBody');
+  if (a.report) {
+    renderMarkdown(body, a.report);
+  } else {
+    body.innerHTML = '';
+    const p = document.createElement('p');
+    p.className = 'rpt-pending';
+    p.textContent = a.error
+      ? `Claude analysis unavailable (${a.error}). The bundle below is ready — copy this prompt into any Claude session along with the contact sheet:`
+      : 'Bundle ready. Copy this prompt into any Claude session along with the contact sheet:';
+    body.appendChild(p);
+    if (a.prompt) {
+      const btn = document.createElement('button');
+      btn.className = 'btn btn-primary';
+      btn.textContent = '📋 Copy analysis prompt';
+      btn.addEventListener('click', async () => {
+        await navigator.clipboard.writeText(a.prompt);
+        btn.textContent = '✓ Copied';
+        setTimeout(() => (btn.textContent = '📋 Copy analysis prompt'), 1500);
+      });
+      body.appendChild(btn);
+    }
+  }
+
+  section.hidden = false;
+  section.scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+$('closeReportBtn').addEventListener('click', () => { $('reportSection').hidden = true; });
 
 /* ------------------------------------------------------------ events */
 

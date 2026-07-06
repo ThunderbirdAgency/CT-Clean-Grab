@@ -3,18 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>CleanGrab — clean video downloads</title>
+<title>Magpie — collect clips, learn why they fly</title>
 <link rel="stylesheet" href="style.css">
-<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>⬇️</text></svg>">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>🐦‍⬛</text></svg>">
 </head>
 <body>
 
 <header class="topbar">
   <div class="brand">
-    <div class="brand-mark">⬇</div>
+    <div class="brand-mark">🐦‍⬛</div>
     <div>
-      <h1>CleanGrab</h1>
-      <p>Paste a link. Get the clean, original video. Nothing else.</p>
+      <h1>Magpie</h1>
+      <p>Collect the clips that fly. Let Claude tell you why.</p>
     </div>
   </div>
   <div class="topbar-right">
@@ -38,6 +38,13 @@
     <div class="inputrow">
       <input id="saveDirInput" type="text" spellcheck="false" placeholder="e.g. ~/Downloads or ~/Dropbox/Videos" />
     </div>
+
+    <h3 class="settings-gap">Auto-analyze</h3>
+    <label class="srcrow">
+      <input type="checkbox" id="autoAnalyzeChk">
+      <span class="srclabel">🔍 Analyze every finished download with Claude automatically</span>
+      <span class="srcnote">needs an Anthropic API key (ANTHROPIC_API_KEY) on the server</span>
+    </label>
 
     <h3 class="settings-gap">Browser cookies</h3>
     <p class="settings-desc">
@@ -111,10 +118,10 @@
 
     <div class="inputrow">
       <input id="urlInput" type="url" spellcheck="false" autocomplete="off"
-             placeholder="Paste a video link here — or drop it anywhere on this window" />
+             placeholder="Paste a video link — or a whole profile/channel to raid their top clips" />
       <button id="fetchBtn" class="btn btn-primary">Fetch</button>
     </div>
-    <p class="hint">Tip: press <kbd>⌘V</kbd> / <kbd>Ctrl+V</kbd> anywhere on this page and CleanGrab picks the link up automatically.</p>
+    <p class="hint">Tip: press <kbd>⌘V</kbd> / <kbd>Ctrl+V</kbd> anywhere on this page and Magpie picks the link up automatically. Paste a creator's profile URL to list their most-viewed clips.</p>
     <p class="error" id="inputError" hidden></p>
   </section>
 
@@ -128,6 +135,7 @@
     <div class="preview-body">
       <h2 id="pvTitle"></h2>
       <p class="pv-uploader" id="pvUploader"></p>
+      <div class="statrow" id="pvStats" hidden></div>
 
       <div class="quality" id="qualityRow">
         <button class="qbtn active" data-q="best">Best<span id="qBestNote"></span></button>
@@ -143,16 +151,42 @@
     </div>
   </section>
 
+  <!-- Collection (profile / channel top clips) -->
+  <section class="collection" id="collectionSection" hidden>
+    <div class="collection-head">
+      <h3 id="colTitle">Top clips</h3>
+      <div class="preview-actions">
+        <button id="grabTopBtn" class="btn btn-primary">⬇ Grab selected</button>
+        <button id="closeColBtn" class="btn btn-ghost">Dismiss</button>
+      </div>
+    </div>
+    <div id="collectionList"></div>
+  </section>
+
   <!-- Queue -->
   <section class="queue" id="queueSection" hidden>
     <h3>Downloads</h3>
     <div id="queue"></div>
   </section>
+
+  <!-- Analysis report -->
+  <section class="report" id="reportSection" hidden>
+    <div class="collection-head">
+      <h3 id="reportTitle">Analysis</h3>
+      <button id="closeReportBtn" class="btn btn-ghost">Close</button>
+    </div>
+    <div class="report-media">
+      <img id="reportSheet" alt="Contact sheet of the clip" />
+      <audio id="reportAudio" controls></audio>
+    </div>
+    <div class="statrow" id="reportStats" hidden></div>
+    <div class="report-body" id="reportBody"></div>
+  </section>
 </main>
 
 <footer>
-  <p>CleanGrab fetches the platform's original media stream — no re-encoding, no added branding.
-     Please only download content you own or have permission to use.</p>
+  <p>Magpie fetches the platform's original media stream — no re-encoding, no added branding.
+     Internal research tool: only download and analyze content you own or have permission to use.</p>
 </footer>
 
 <script src="app.js"></script>

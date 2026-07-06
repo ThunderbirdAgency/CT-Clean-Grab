@@ -1,7 +1,7 @@
 {
-  "name": "cleangrab",
-  "version": "1.0.0",
-  "description": "A Downie-style video downloader with a clean web interface. Paste an Instagram, TikTok, or YouTube link and get the original video file — no watermarks, no branding.",
+  "name": "magpie",
+  "version": "2.0.0",
+  "description": "Collect the clips that fly, let Claude tell you why. Downloads clean originals from Instagram/TikTok/YouTube, captures engagement stats, and builds Claude-powered virality analyses + same-DNA scripts.",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
@@ -10,5 +10,8 @@
   "engines": {
     "node": ">=18"
   },
-  "license": "MIT"
+  "license": "MIT",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.110.0"
+  }
 }
